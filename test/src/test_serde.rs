@@ -1,6 +1,33 @@
 use ::serde::{Deserialize, Serialize};
 use gdnative::prelude::*;
 
+pub(crate) fn run_tests() -> bool {
+    let mut status = true;
+    
+    //These [de]serialize each field individually, instead of going through ToVariant/FromVariant
+    status &= test_ron_round_trip();
+    status &= test_json_round_trip();
+    
+    let mut eq_works = true;
+    eq_works &= test_variant_eq();
+    eq_works &= test_dispatch_eq();
+    //All other tests depend on these invariants
+    if !eq_works {
+        gdnative::godot_error!(
+            "   !!!! Can't run remaining serde tests, ToVariant/FromVariant is broken!"
+        );
+        return false;
+    }
+    
+    status &= test_ron_disp_round_trip();
+    status &= test_ron_de_disp_as_variant();
+    status &= test_json_disp_round_trip();
+    status &= test_json_de_disp_as_variant();
+    status &= test_bincode_round_trip();
+    
+    status
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToVariant, FromVariant)]
 struct Foo {
     some: Option<bool>,
@@ -77,35 +104,12 @@ impl Foo {
             ]),
             vec3_arr: Vector3Array::from_slice(&[
                 Vector3::ONE * 41.0,
-                Vector3::BACK,
-                Vector3::FORWARD,
+                Vector3::BACK * 42.43,
+                Vector3::FORWARD * 44.45,
             ]),
             color_arr: ColorArray::from_slice(&[Color::from_rgba(0.0, 1.0, 0.627, 0.8)]),
         }
     }
-}
-
-pub(crate) fn run_tests() -> bool {
-    let mut status = true;
-
-    //These [de]serialize each field individually, instead of going through ToVariant/FromVariant
-    status &= test_ron_round_trip();
-    status &= test_json_round_trip();
-
-    let mut eq_works = true;
-    eq_works &= test_variant_eq();
-    eq_works &= test_dispatch_eq();
-    //All other tests depend on these invariants
-    if !eq_works {
-        gdnative::godot_error!(
-            "   !!!! Can't run remaining serde tests, ToVariant/FromVariant is broken!"
-        );
-        return false;
-    }
-
-    status &= test_bincode_round_trip();
-
-    status
 }
 
 /// Sanity check that a round trip through Variant preserves equality for Foo.
@@ -113,10 +117,10 @@ fn test_variant_eq() -> bool {
     println!(" -- test_variant_eq");
 
     let ok = std::panic::catch_unwind(|| {
-        let test = Foo::new();
-        let variant = test.to_variant();
-        let test_again = Foo::from_variant(&variant).unwrap();
-        assert_eq!(test, test_again);
+        let foo = Foo::new();
+        let variant = foo.to_variant();
+        let result = Foo::from_variant(&variant).unwrap();
+        assert_eq!(foo, result);
     })
     .is_ok();
 
@@ -132,10 +136,10 @@ fn test_dispatch_eq() -> bool {
     println!(" -- test_variant_eq");
 
     let ok = std::panic::catch_unwind(|| {
-        let test = Foo::new();
-        let dispatch = test.to_variant().dispatch();
-        let test_again = Foo::from_variant(&Variant::from(&dispatch)).unwrap();
-        assert_eq!(test, test_again);
+        let foo = Foo::new();
+        let dispatch = foo.to_variant().dispatch();
+        let result = Foo::from_variant(&Variant::from(&dispatch)).unwrap();
+        assert_eq!(foo, result);
     })
     .is_ok();
 
@@ -150,11 +154,11 @@ fn test_ron_round_trip() -> bool {
     println!(" -- test_ron_round_trip");
 
     let ok = std::panic::catch_unwind(|| {
-        let test = Foo::new();
-        let test_str = ron::to_string(&test);
+        let foo = Foo::new();
+        let test_str = ron::to_string(&foo);
         let mut de = ron::Deserializer::from_str(test_str.as_ref().unwrap());
-        let test_again = Foo::deserialize(de.as_mut().unwrap()).unwrap();
-        assert_eq!(test, test_again)
+        let result = Foo::deserialize(de.as_mut().unwrap()).unwrap();
+        assert_eq!(foo, result)
     })
     .is_ok();
 
@@ -165,14 +169,55 @@ fn test_ron_round_trip() -> bool {
     ok
 }
 
+fn test_ron_disp_round_trip() -> bool {
+    println!(" -- test_ron_disp_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let test_str = ron::to_string(&foo.to_variant().dispatch());
+        let mut de = ron::Deserializer::from_str(test_str.as_ref().unwrap());
+        let disp = VariantDispatch::deserialize(de.as_mut().unwrap()).unwrap();
+        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_ron_disp_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_ron_de_disp_as_variant() -> bool {
+    println!(" -- test_ron_de_disp_as_variant");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let test_str = ron::to_string(&foo.to_variant().dispatch());
+        godot_dbg!(&test_str);
+        let mut de = ron::Deserializer::from_str(test_str.as_ref().unwrap());
+        let variant = Variant::deserialize(de.as_mut().unwrap()).unwrap();
+        let result = Foo::from_variant(&variant).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_ron_de_disp_as_variant failed");
+    }
+    
+    ok
+}
+
 fn test_json_round_trip() -> bool {
     println!(" -- test_json_round_trip");
 
     let ok = std::panic::catch_unwind(|| {
-        let test = Foo::new();
-        let test_str = serde_json::to_string(&test);
-        let test_again = serde_json::from_str::<Foo>(test_str.as_ref().unwrap()).unwrap();
-        assert_eq!(test, test_again)
+        let foo = Foo::new();
+        let test_str = serde_json::to_string(&foo);
+        let result = serde_json::from_str::<Foo>(test_str.as_ref().unwrap()).unwrap();
+        assert_eq!(foo, result)
     })
     .is_ok();
 
@@ -183,15 +228,54 @@ fn test_json_round_trip() -> bool {
     ok
 }
 
+fn test_json_disp_round_trip() -> bool {
+    println!(" -- test_json_disp_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let test_str = serde_json::to_string(&foo.to_variant().dispatch());
+        godot_dbg!(&test_str);
+        let disp = serde_json::from_str::<VariantDispatch>(test_str.as_ref().unwrap()).unwrap();
+        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_json_disp_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_json_de_disp_as_variant() -> bool {
+    println!(" -- test_json_de_disp_as_variant");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let test_str = serde_json::to_string(&foo.to_variant().dispatch());
+        let variant = serde_json::from_str::<Variant>(test_str.as_ref().unwrap()).unwrap();
+        let result = Foo::from_variant(&variant).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_json_de_disp_as_variant failed");
+    }
+    
+    ok
+}
+
 fn test_bincode_round_trip() -> bool {
     println!(" -- test_bincode_round_trip");
 
     let ok = std::panic::catch_unwind(|| {
-        let test = Foo::new();
-        let test_bytes = bincode::serialize(&test.to_variant().dispatch());
+        let foo = Foo::new();
+        let test_bytes = bincode::serialize(&foo.to_variant().dispatch());
         let disp = bincode::deserialize::<VariantDispatch>(test_bytes.as_ref().unwrap()).unwrap();
-        let test_again = Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(test, test_again)
+        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
+        assert_eq!(foo, result)
     })
     .is_ok();
 
