@@ -1,6 +1,7 @@
 use super::IsEqualApprox;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(C)]
 pub struct Quat {
     pub x: f32,

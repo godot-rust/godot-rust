@@ -4,6 +4,7 @@ use core::ops::Mul;
 /// A 3x3 matrix.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Basis {
     pub elements: [Vector3; 3],
 }

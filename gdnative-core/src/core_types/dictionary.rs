@@ -577,6 +577,64 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
+pub(super) mod serde {
+    use super::*;
+    use ::serde::{
+        de::{MapAccess, Visitor},
+        ser::SerializeMap,
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use std::fmt::Formatter;
+
+    impl Serialize for Dictionary {
+        #[inline]
+        fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let mut ser = ser.serialize_map(Some(self.len() as usize))?;
+            for (key, value) in self.iter() {
+                ser.serialize_entry(&key, &value)?
+            }
+            ser.end()
+        }
+    }
+
+    pub(in super::super) struct DictionaryVisitor;
+
+    impl<'de> Visitor<'de> for DictionaryVisitor {
+        type Value = Dictionary<Unique>;
+
+        fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
+            formatter.write_str("a Dictionary")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let dict = Dictionary::new();
+            while let Some((key, value)) = map.next_entry::<Variant, Variant>()? {
+                dict.insert(key, value)
+            }
+            Ok(dict)
+        }
+    }
+
+    impl<'de, Access: ThreadAccess> Deserialize<'de> for Dictionary<Access> {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer
+                .deserialize_map(DictionaryVisitor)
+                .map(|dict| unsafe { dict.cast_access() })
+        }
+    }
+}
+
 godot_test!(test_dictionary {
     use std::collections::HashSet;
 

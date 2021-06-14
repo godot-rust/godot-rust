@@ -9,6 +9,9 @@ use crate::object::*;
 use crate::private::{get_api, ManuallyManagedClassPlaceholder};
 use crate::thread_access::*;
 
+#[cfg(feature = "serde")]
+mod serde;
+
 // TODO: implement Debug, PartialEq, etc.
 
 /// A `Variant` can represent many of godot's core types.
@@ -103,10 +106,24 @@ macro_rules! decl_variant_type {
     ) => {
         #[repr(u32)]
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
         pub enum VariantType {
             $(
                 $variant = $c_const as u32,
             )*
+        }
+
+        impl VariantType {
+            pub const NAMES: &'static [&'static str] = &[
+                $(stringify!($variant),)*
+            ];
+
+            #[inline]
+            pub fn name(&self) -> &'static str {
+                match *self {
+                    $(Self::$variant => stringify!($variant),)*
+                }
+            }
         }
 
         /// Rust enum associating each primitive variant type to its value.
@@ -129,6 +146,19 @@ macro_rules! decl_variant_type {
                             variant_dispatch_arm!(v, $variant $( ($inner) )?)
                         },
                     )*
+                }
+            }
+        }
+
+        impl<'a> From<&'a VariantDispatch> for Variant {
+            #[inline]
+            fn from(v: &'a VariantDispatch) -> Self {
+                match v {
+                    $($(VariantDispatch::$variant(v) => {
+                        let v: &$inner = v;
+                        v.to_variant()
+                    })?)*
+                    _ => Variant::new()
                 }
             }
         }
