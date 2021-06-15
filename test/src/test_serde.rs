@@ -4,9 +4,12 @@ use gdnative::prelude::*;
 pub(crate) fn run_tests() -> bool {
     let mut status = true;
     
-    //These [de]serialize each field individually, instead of going through ToVariant/FromVariant
+    //These [de]serialize Foo via the derived impl, instead of going through ToVariant/FromVariant
     status &= test_ron_round_trip();
     status &= test_json_round_trip();
+    status &= test_cbor_round_trip();
+    status &= test_yaml_round_trip();
+    status &= test_toml_round_trip();
     
     let mut eq_works = true;
     eq_works &= test_variant_eq();
@@ -23,7 +26,13 @@ pub(crate) fn run_tests() -> bool {
     status &= test_ron_de_disp_as_variant();
     status &= test_json_disp_round_trip();
     status &= test_json_de_disp_as_variant();
-    status &= test_bincode_round_trip();
+    status &= test_bincode_disp_round_trip();
+    status &= test_cbor_variant_round_trip();
+    status &= test_cbor_disp_round_trip();
+    status &= test_yaml_variant_round_trip();
+    status &= test_yaml_disp_round_trip();
+    status &= test_toml_variant_round_trip();
+    status &= test_toml_disp_round_trip();
     
     status
 }
@@ -194,9 +203,8 @@ fn test_ron_de_disp_as_variant() -> bool {
     
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let test_str = ron::to_string(&foo.to_variant().dispatch());
-        godot_dbg!(&test_str);
-        let mut de = ron::Deserializer::from_str(test_str.as_ref().unwrap());
+        let s = ron::to_string(&foo.to_variant().dispatch());
+        let mut de = ron::Deserializer::from_str(s.as_ref().unwrap());
         let variant = Variant::deserialize(de.as_mut().unwrap()).unwrap();
         let result = Foo::from_variant(&variant).unwrap();
         assert_eq!(foo, result)
@@ -215,8 +223,8 @@ fn test_json_round_trip() -> bool {
 
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let test_str = serde_json::to_string(&foo);
-        let result = serde_json::from_str::<Foo>(test_str.as_ref().unwrap()).unwrap();
+        let s = serde_json::to_string(&foo);
+        let result = serde_json::from_str::<Foo>(s.as_ref().unwrap()).unwrap();
         assert_eq!(foo, result)
     })
     .is_ok();
@@ -233,9 +241,8 @@ fn test_json_disp_round_trip() -> bool {
     
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let test_str = serde_json::to_string(&foo.to_variant().dispatch());
-        godot_dbg!(&test_str);
-        let disp = serde_json::from_str::<VariantDispatch>(test_str.as_ref().unwrap()).unwrap();
+        let s = serde_json::to_string(&foo.to_variant().dispatch());
+        let disp = serde_json::from_str::<VariantDispatch>(s.as_ref().unwrap()).unwrap();
         let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
         assert_eq!(foo, result)
     })
@@ -253,8 +260,8 @@ fn test_json_de_disp_as_variant() -> bool {
     
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let test_str = serde_json::to_string(&foo.to_variant().dispatch());
-        let variant = serde_json::from_str::<Variant>(test_str.as_ref().unwrap()).unwrap();
+        let s = serde_json::to_string(&foo.to_variant().dispatch());
+        let variant = serde_json::from_str::<Variant>(s.as_ref().unwrap()).unwrap();
         let result = Foo::from_variant(&variant).unwrap();
         assert_eq!(foo, result)
     })
@@ -267,21 +274,190 @@ fn test_json_de_disp_as_variant() -> bool {
     ok
 }
 
-fn test_bincode_round_trip() -> bool {
-    println!(" -- test_bincode_round_trip");
+fn test_bincode_disp_round_trip() -> bool {
+    println!(" -- test_bincode_disp_round_trip");
 
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let test_bytes = bincode::serialize(&foo.to_variant().dispatch());
-        let disp = bincode::deserialize::<VariantDispatch>(test_bytes.as_ref().unwrap()).unwrap();
+        let bytes = bincode::serialize(&foo.to_variant().dispatch());
+        let disp = bincode::deserialize::<VariantDispatch>(bytes.as_ref().unwrap()).unwrap();
         let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
         assert_eq!(foo, result)
     })
     .is_ok();
 
     if !ok {
-        gdnative::godot_error!("   !! Test test_bincode_round_trip failed");
+        gdnative::godot_error!("   !! Test test_bincode_disp_round_trip failed");
     }
 
+    ok
+}
+
+fn test_cbor_round_trip() -> bool {
+    println!(" -- test_cbor_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let bytes = serde_cbor::to_vec(&foo).unwrap();
+        let result = serde_cbor::from_slice::<Foo>(&bytes).unwrap();
+        assert_eq!(foo, result)
+    })
+    .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_cbor_round_trip failed");
+    }
+    
+    ok
+}
+
+
+fn test_cbor_variant_round_trip() -> bool {
+    println!(" -- test_cbor_variant_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let bytes = serde_cbor::to_vec(&foo.to_variant()).unwrap();
+        let disp = serde_cbor::from_slice::<Variant>(&bytes).unwrap();
+        let result = Foo::from_variant(&disp).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_cbor_variant_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_cbor_disp_round_trip() -> bool {
+    println!(" -- test_cbor_disp_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let bytes = serde_cbor::to_vec(&foo.to_variant().dispatch()).unwrap();
+        let disp = serde_cbor::from_slice::<VariantDispatch>(&bytes).unwrap();
+        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_cbor_disp_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_yaml_round_trip() -> bool {
+    println!(" -- test_yaml_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let s = serde_yaml::to_string(&foo).unwrap();
+        let result = serde_yaml::from_str::<Foo>(&s).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_yaml_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_yaml_variant_round_trip() -> bool {
+    println!(" -- test_yaml_variant_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let s = serde_yaml::to_string(&foo.to_variant()).unwrap();
+        let variant = serde_yaml::from_str::<Variant>(&s).unwrap();
+        let result = Foo::from_variant(&variant).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_yaml_variant_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_yaml_disp_round_trip() -> bool {
+    println!(" -- test_yaml_disp_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let s = serde_yaml::to_string(&foo.to_variant().dispatch()).unwrap();
+        let disp = serde_yaml::from_str::<VariantDispatch>(&s).unwrap();
+        let result= Foo::from_variant(&Variant::from(&disp)).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_yaml_disp_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_toml_round_trip() -> bool {
+    println!(" -- test_toml_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let s = toml::to_string(&foo).unwrap();
+        let result = toml::from_str::<Foo>(&s).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_toml_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_toml_variant_round_trip() -> bool {
+    println!(" -- test_toml_variant_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let s = toml::to_string(&foo.to_variant()).unwrap();
+        let variant = toml::from_str::<Variant>(&s).unwrap();
+        let result = Foo::from_variant(&variant).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_toml_variant_round_trip failed");
+    }
+    
+    ok
+}
+
+fn test_toml_disp_round_trip() -> bool {
+    println!(" -- test_toml_disp_round_trip");
+    
+    let ok = std::panic::catch_unwind(|| {
+        let foo = Foo::new();
+        let s = toml::to_string(&foo.to_variant().dispatch()).unwrap();
+        let disp = toml::from_str::<VariantDispatch>(&s).unwrap();
+        let result= Foo::from_variant(&Variant::from(&disp)).unwrap();
+        assert_eq!(foo, result)
+    })
+      .is_ok();
+    
+    if !ok {
+        gdnative::godot_error!("   !! Test test_toml_disp_round_trip failed");
+    }
+    
     ok
 }
