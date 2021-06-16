@@ -106,7 +106,6 @@ macro_rules! decl_variant_type {
     ) => {
         #[repr(u32)]
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-        #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
         pub enum VariantType {
             $(
                 $variant = $c_const as u32,
@@ -114,16 +113,10 @@ macro_rules! decl_variant_type {
         }
 
         impl VariantType {
+            /// The potential names of VariantTypes. Mostly used for serialization.
             pub const NAMES: &'static [&'static str] = &[
                 $(stringify!($variant),)*
             ];
-
-            #[inline]
-            pub fn name(&self) -> &'static str {
-                match *self {
-                    $(Self::$variant => stringify!($variant),)*
-                }
-            }
         }
 
         /// Rust enum associating each primitive variant type to its value.
@@ -202,6 +195,15 @@ impl VariantType {
     #[inline]
     pub fn from_sys(v: sys::godot_variant_type) -> VariantType {
         unsafe { transmute(v as u32) }
+    }
+
+    /// The `stringify!` representation of this variant. Mostly used for serialization.
+    #[inline]
+    pub const fn name(&self) -> &'static str {
+        // NOTE: this assumes that the discriminants remain sequential, since any additions to the
+        // VariantType enum would require a breaking change anyway since it is not marked as non-exhaustive.
+        // See also the Deserialize implementation in the serde submodule.
+        Self::NAMES[*self as usize]
     }
 }
 

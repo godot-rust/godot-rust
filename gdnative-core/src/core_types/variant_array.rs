@@ -588,67 +588,6 @@ impl<T: ToVariant, Access: LocalThreadAccess> Extend<T> for VariantArray<Access>
     }
 }
 
-// #[cfg(feature = "serde")]
-// pub(super) mod serde {
-//     use super::*;
-//     use ::serde::{
-//         de::{SeqAccess, Visitor},
-//         ser::SerializeSeq,
-//         Deserialize, Deserializer, Serialize, Serializer,
-//     };
-//     use std::fmt::Formatter;
-//
-//     impl Serialize for VariantArray {
-//         #[inline]
-//         fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
-//         where
-//             S: Serializer,
-//         {
-//             let mut ser = ser.serialize_seq(Some(self.len() as usize))?;
-//             for v in self.iter() {
-//                 ser.serialize_element(&v)?
-//             }
-//             ser.end()
-//         }
-//     }
-//
-//     pub(in super::super) struct VariantArrayVisitor;
-//
-//     impl<'de> Visitor<'de> for VariantArrayVisitor {
-//         type Value = VariantArray<Unique>;
-//
-//         fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
-//             formatter.write_str("a VariantArray")
-//         }
-//
-//         fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-//         where
-//             A: SeqAccess<'de>,
-//         {
-//             let arr = VariantArray::new();
-//             if let Some(size) = seq.size_hint() {
-//                 arr.resize(size as i32);
-//             }
-//             while let Some(val) = seq.next_element::<Variant>()? {
-//                 arr.push(val)
-//             }
-//             Ok(arr)
-//         }
-//     }
-//
-//     impl<'de, Access: ThreadAccess> Deserialize<'de> for VariantArray<Access> {
-//         #[inline]
-//         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//         where
-//             D: Deserializer<'de>,
-//         {
-//             deserializer
-//                 .deserialize_seq(VariantArrayVisitor)
-//                 .map(|arr| unsafe { arr.cast_access() })
-//         }
-//     }
-// }
-
 godot_test!(test_array {
     let foo = Variant::from_str("foo");
     let bar = Variant::from_str("bar");

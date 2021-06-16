@@ -12,8 +12,9 @@ edition = "2018"
 
 [features]
 default = ["nativescript"]
-gd_test = ["serde"]
+gd_test = []
 nativescript = ["bitflags", "parking_lot"]
+serde_1 = ["serde", "serde_repr"]
 type_tag_fallback = []
 
 [dependencies]
@@ -25,6 +26,7 @@ indexmap = "1.6.0"
 ahash = "0.7.0"
 once_cell = "1.7.2"
 serde = { version = "1", features = ["derive"], optional = true }
+serde_repr = { version = "0.1.7", optional = true }
 
 gdnative-impl-proc-macros = { path = "../impl/proc_macros", version = "=0.9.3" }
 

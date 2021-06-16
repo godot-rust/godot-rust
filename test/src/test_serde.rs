@@ -4,7 +4,7 @@ use gdnative::prelude::*;
 pub(crate) fn run_tests() -> bool {
     let mut status = true;
 
-    //All tests depend on these invariants
+    // All tests depend on these invariants
     status &= test_variant_eq();
     status &= test_dispatch_eq();
     if !status {
@@ -31,9 +31,9 @@ struct Foo {
     float: f64,
     str: GodotString,
     vec2: Vector2,
-    // rect2: Rect2, //TODO: PartialEq
+    rect2: Rect2,
     vec3: Vector3,
-    // xform_2d: Transform2D, //TODO: PartialEq
+    xform_2d: Transform2D,
     plane: Plane,
     quat: Quat,
     aabb: Aabb,
@@ -42,7 +42,7 @@ struct Foo {
     color: Color,
     path: NodePath,
     rid: Rid,
-    // obj: Object, //TODO: how best to test this?
+    // obj: VariantDispatch, //TODO: Debug, PartialEq (test `Object::new().to_variant().dispatch()` => `VariantDispatch::Object(Variant::new())`)
     // dict: Dictionary, //TODO: PartialEq
     // v_arr: VariantArray, //TODO: PartialEq
     byte_arr: ByteArray,
@@ -64,7 +64,16 @@ impl Foo {
             float: 2.0,
             str: "this is a str".into(),
             vec2: Vector2::RIGHT,
+            rect2: Rect2 {
+                position: Vector2 { x: 46.47, y: -2.0 },
+                size: Vector2 { x: 3.0, y: 4.8 },
+            },
             vec3: Vector3::BACK,
+            xform_2d: Transform2D {
+                x: Vector2::RIGHT,
+                y: Vector2::DOWN,
+                origin: Vector2::ZERO,
+            },
             plane: Plane {
                 normal: Vector3::ONE.normalized(),
                 d: 3.0,
@@ -76,7 +85,7 @@ impl Foo {
             },
             basis: Basis::identity().rotated(Vector3::UP, std::f32::consts::TAU / 3.0),
             xform: Transform {
-                basis: Basis::from_euler(Vector3::new(18.19, 20.21, 22.23)),
+                basis: Basis::from_euler(Vector3::new(18.19, -20.21, 22.23)),
                 origin: Vector3::new(24.25, 26.27, 28.29),
             },
             color: Color::from_rgb(0.549, 0.0, 1.0),
@@ -264,9 +273,6 @@ fn test_msgpack() -> bool {
 
         let msgpack_disp_bytes =
             rmp_serde::to_vec_named(&foo.to_variant().dispatch()).expect("Dispatch to MessagePack");
-        //FIXME: This is failing:
-        // Turns out I need to make a separate enum for the discriminant just so I can call
-        // `deserialize_identifier` instead of `deserialize_enum`.....
         let disp = rmp_serde::from_read_ref::<_, VariantDispatch>(&msgpack_disp_bytes)
             .expect("Dispatch from MessagePack");
         let result =
@@ -307,10 +313,4 @@ fn test_bincode() -> bool {
     }
 
     ok
-}
-
-#[derive(Serialize, Deserialize)]
-enum Bar {
-    Baz(f64),
-    Qux(bool),
 }
