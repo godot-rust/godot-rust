@@ -3,37 +3,22 @@ use gdnative::prelude::*;
 
 pub(crate) fn run_tests() -> bool {
     let mut status = true;
-    
-    //These [de]serialize Foo via the derived impl, instead of going through ToVariant/FromVariant
-    status &= test_ron_round_trip();
-    status &= test_json_round_trip();
-    status &= test_cbor_round_trip();
-    status &= test_yaml_round_trip();
-    status &= test_toml_round_trip();
-    
-    let mut eq_works = true;
-    eq_works &= test_variant_eq();
-    eq_works &= test_dispatch_eq();
-    //All other tests depend on these invariants
-    if !eq_works {
-        gdnative::godot_error!(
-            "   !!!! Can't run remaining serde tests, ToVariant/FromVariant is broken!"
-        );
+
+    //All tests depend on these invariants
+    status &= test_variant_eq();
+    status &= test_dispatch_eq();
+    if !status {
+        gdnative::godot_error!("   !!!! Can't run serde tests, ToVariant/FromVariant is broken!");
         return false;
     }
-    
-    status &= test_ron_disp_round_trip();
-    status &= test_ron_de_disp_as_variant();
-    status &= test_json_disp_round_trip();
-    status &= test_json_de_disp_as_variant();
-    status &= test_bincode_disp_round_trip();
-    status &= test_cbor_variant_round_trip();
-    status &= test_cbor_disp_round_trip();
-    status &= test_yaml_variant_round_trip();
-    status &= test_yaml_disp_round_trip();
-    status &= test_toml_variant_round_trip();
-    status &= test_toml_disp_round_trip();
-    
+
+    status &= test_ron();
+    status &= test_json();
+    status &= test_yaml();
+    status &= test_cbor();
+    status &= test_msgpack();
+    status &= test_bincode();
+
     status
 }
 
@@ -128,7 +113,7 @@ fn test_variant_eq() -> bool {
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
         let variant = foo.to_variant();
-        let result = Foo::from_variant(&variant).unwrap();
+        let result = Foo::from_variant(&variant).expect("Foo::from_variant");
         assert_eq!(foo, result);
     })
     .is_ok();
@@ -147,7 +132,7 @@ fn test_dispatch_eq() -> bool {
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
         let dispatch = foo.to_variant().dispatch();
-        let result = Foo::from_variant(&Variant::from(&dispatch)).unwrap();
+        let result = Foo::from_variant(&Variant::from(&dispatch)).expect("Foo from Dispatch");
         assert_eq!(foo, result);
     })
     .is_ok();
@@ -159,305 +144,173 @@ fn test_dispatch_eq() -> bool {
     ok
 }
 
-fn test_ron_round_trip() -> bool {
-    println!(" -- test_ron_round_trip");
+fn test_ron() -> bool {
+    println!(" -- test_ron");
 
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let test_str = ron::to_string(&foo);
-        let mut de = ron::Deserializer::from_str(test_str.as_ref().unwrap());
-        let result = Foo::deserialize(de.as_mut().unwrap()).unwrap();
-        assert_eq!(foo, result)
+
+        let ron_str = ron::to_string(&foo).expect("Foo to RON str");
+        let mut de = ron::Deserializer::from_str(ron_str.as_ref());
+        let result = Foo::deserialize(de.as_mut().expect("deserialize Foo from RON")).unwrap();
+        assert_eq!(foo, result);
+
+        let ron_disp_str = ron::to_string(&foo.to_variant().dispatch()).expect("Dispatch to RON");
+        let mut de = ron::Deserializer::from_str(ron_disp_str.as_ref());
+        let de = de
+            .as_mut()
+            .expect("disp_round_trip ron::Deserializer::from_str");
+        let disp = VariantDispatch::deserialize(de).expect("Dispatch from RON");
+        let result = Foo::from_variant(&Variant::from(&disp)).expect("Foo from Dispatch from RON");
+        assert_eq!(foo, result);
     })
     .is_ok();
 
     if !ok {
-        gdnative::godot_error!("   !! Test test_ron_round_trip failed");
+        gdnative::godot_error!("   !! Test test_ron failed");
     }
 
     ok
 }
 
-fn test_ron_disp_round_trip() -> bool {
-    println!(" -- test_ron_disp_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let test_str = ron::to_string(&foo.to_variant().dispatch());
-        let mut de = ron::Deserializer::from_str(test_str.as_ref().unwrap());
-        let disp = VariantDispatch::deserialize(de.as_mut().unwrap()).unwrap();
-        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_ron_disp_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_ron_de_disp_as_variant() -> bool {
-    println!(" -- test_ron_de_disp_as_variant");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = ron::to_string(&foo.to_variant().dispatch());
-        let mut de = ron::Deserializer::from_str(s.as_ref().unwrap());
-        let variant = Variant::deserialize(de.as_mut().unwrap()).unwrap();
-        let result = Foo::from_variant(&variant).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_ron_de_disp_as_variant failed");
-    }
-    
-    ok
-}
-
-fn test_json_round_trip() -> bool {
-    println!(" -- test_json_round_trip");
+fn test_json() -> bool {
+    println!(" -- test_json");
 
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let s = serde_json::to_string(&foo);
-        let result = serde_json::from_str::<Foo>(s.as_ref().unwrap()).unwrap();
-        assert_eq!(foo, result)
+
+        let json_str = serde_json::to_string(&foo).expect("Foo to JSON");
+        let result = serde_json::from_str::<Foo>(json_str.as_ref()).expect("Foo from JSON");
+        assert_eq!(foo, result);
+
+        let foo = Foo::new();
+        let json_disp_str =
+            serde_json::to_string(&foo.to_variant().dispatch()).expect("Foo Dispatch to JSON");
+        let disp = serde_json::from_str::<VariantDispatch>(json_disp_str.as_ref())
+            .expect("Dispatch from JSON");
+        let result = Foo::from_variant(&Variant::from(&disp)).expect("Foo from Dispatch from JSON");
+        assert_eq!(foo, result);
     })
     .is_ok();
 
     if !ok {
-        gdnative::godot_error!("   !! Test test_json_round_trip failed");
+        gdnative::godot_error!("   !! Test test_json failed");
     }
 
     ok
 }
 
-fn test_json_disp_round_trip() -> bool {
-    println!(" -- test_json_disp_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = serde_json::to_string(&foo.to_variant().dispatch());
-        let disp = serde_json::from_str::<VariantDispatch>(s.as_ref().unwrap()).unwrap();
-        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_json_disp_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_json_de_disp_as_variant() -> bool {
-    println!(" -- test_json_de_disp_as_variant");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = serde_json::to_string(&foo.to_variant().dispatch());
-        let variant = serde_json::from_str::<Variant>(s.as_ref().unwrap()).unwrap();
-        let result = Foo::from_variant(&variant).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_json_de_disp_as_variant failed");
-    }
-    
-    ok
-}
-
-fn test_bincode_disp_round_trip() -> bool {
-    println!(" -- test_bincode_disp_round_trip");
+fn test_yaml() -> bool {
+    println!(" -- test_yaml");
 
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let bytes = bincode::serialize(&foo.to_variant().dispatch());
-        let disp = bincode::deserialize::<VariantDispatch>(bytes.as_ref().unwrap()).unwrap();
-        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(foo, result)
+
+        let yaml_str = serde_yaml::to_string(&foo).expect("Foo to YAML");
+        let result = serde_yaml::from_str::<Foo>(&yaml_str).expect("Foo from YAML");
+        assert_eq!(foo, result);
+
+        let yaml_str =
+            serde_yaml::to_string(&foo.to_variant().dispatch()).expect("Dispatch to YAML");
+        let disp = serde_yaml::from_str::<VariantDispatch>(&yaml_str).expect("Dispatch from YAML");
+        let result = Foo::from_variant(&Variant::from(&disp)).expect("Foo from Dispatch from YAML");
+        assert_eq!(foo, result);
     })
     .is_ok();
 
     if !ok {
-        gdnative::godot_error!("   !! Test test_bincode_disp_round_trip failed");
+        gdnative::godot_error!("   !! Test test_yaml failed");
     }
 
     ok
 }
 
-fn test_cbor_round_trip() -> bool {
-    println!(" -- test_cbor_round_trip");
-    
+fn test_cbor() -> bool {
+    println!(" -- test_cbor");
+
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let bytes = serde_cbor::to_vec(&foo).unwrap();
-        let result = serde_cbor::from_slice::<Foo>(&bytes).unwrap();
-        assert_eq!(foo, result)
+
+        let cbor_bytes = serde_cbor::to_vec(&foo).expect("Foo to CBOR");
+        let result = serde_cbor::from_slice::<Foo>(&cbor_bytes).expect("Foo from CBOR");
+        assert_eq!(foo, result);
+
+        let cbor_bytes =
+            serde_cbor::to_vec(&foo.to_variant().dispatch()).expect("Dispatch to CBOR");
+        let disp =
+            serde_cbor::from_slice::<VariantDispatch>(&cbor_bytes).expect("Dispatch from CBOR");
+        let result = Foo::from_variant(&Variant::from(&disp)).expect("Foo from Dispatch from CBOR");
+        assert_eq!(foo, result);
     })
     .is_ok();
-    
+
     if !ok {
-        gdnative::godot_error!("   !! Test test_cbor_round_trip failed");
+        gdnative::godot_error!("   !! Test test_cbor failed");
     }
-    
+
     ok
 }
 
+fn test_msgpack() -> bool {
+    println!(" -- test_msgpack");
 
-fn test_cbor_variant_round_trip() -> bool {
-    println!(" -- test_cbor_variant_round_trip");
-    
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let bytes = serde_cbor::to_vec(&foo.to_variant()).unwrap();
-        let disp = serde_cbor::from_slice::<Variant>(&bytes).unwrap();
-        let result = Foo::from_variant(&disp).unwrap();
-        assert_eq!(foo, result)
+
+        let msgpack_bytes = rmp_serde::to_vec_named(&foo).expect("Foo to MessagePack");
+        let result =
+            rmp_serde::from_read_ref::<_, Foo>(&msgpack_bytes).expect("Foo from MessagePack");
+        assert_eq!(foo, result);
+
+        let msgpack_disp_bytes =
+            rmp_serde::to_vec_named(&foo.to_variant().dispatch()).expect("Dispatch to MessagePack");
+        //FIXME: This is failing:
+        // Turns out I need to make a separate enum for the discriminant just so I can call
+        // `deserialize_identifier` instead of `deserialize_enum`.....
+        let disp = rmp_serde::from_read_ref::<_, VariantDispatch>(&msgpack_disp_bytes)
+            .expect("Dispatch from MessagePack");
+        let result =
+            Foo::from_variant(&Variant::from(&disp)).expect("Foo from Dispatch from MessagePack");
+        assert_eq!(foo, result);
     })
-      .is_ok();
-    
+    .is_ok();
+
     if !ok {
-        gdnative::godot_error!("   !! Test test_cbor_variant_round_trip failed");
+        gdnative::godot_error!("   !! Test test_msgpack failed");
     }
-    
+
     ok
 }
 
-fn test_cbor_disp_round_trip() -> bool {
-    println!(" -- test_cbor_disp_round_trip");
-    
+fn test_bincode() -> bool {
+    println!(" -- test_bincode");
+
     let ok = std::panic::catch_unwind(|| {
         let foo = Foo::new();
-        let bytes = serde_cbor::to_vec(&foo.to_variant().dispatch()).unwrap();
-        let disp = serde_cbor::from_slice::<VariantDispatch>(&bytes).unwrap();
-        let result = Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(foo, result)
+
+        let bincode_bytes = bincode::serialize(&foo).expect("Foo to bincode");
+        let result = bincode::deserialize::<Foo>(bincode_bytes.as_ref()).expect("Foo from bincode");
+        assert_eq!(foo, result);
+
+        let bincode_bytes =
+            bincode::serialize(&foo.to_variant().dispatch()).expect("Dispatch to bincode");
+        let disp = bincode::deserialize::<VariantDispatch>(bincode_bytes.as_ref())
+            .expect("Dispatch from bincode");
+        let result =
+            Foo::from_variant(&Variant::from(&disp)).expect("Foo from Dispatch from bincode");
+        assert_eq!(foo, result);
     })
-      .is_ok();
-    
+    .is_ok();
+
     if !ok {
-        gdnative::godot_error!("   !! Test test_cbor_disp_round_trip failed");
+        gdnative::godot_error!("   !! Test test_bincode failed");
     }
-    
+
     ok
 }
 
-fn test_yaml_round_trip() -> bool {
-    println!(" -- test_yaml_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = serde_yaml::to_string(&foo).unwrap();
-        let result = serde_yaml::from_str::<Foo>(&s).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_yaml_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_yaml_variant_round_trip() -> bool {
-    println!(" -- test_yaml_variant_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = serde_yaml::to_string(&foo.to_variant()).unwrap();
-        let variant = serde_yaml::from_str::<Variant>(&s).unwrap();
-        let result = Foo::from_variant(&variant).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_yaml_variant_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_yaml_disp_round_trip() -> bool {
-    println!(" -- test_yaml_disp_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = serde_yaml::to_string(&foo.to_variant().dispatch()).unwrap();
-        let disp = serde_yaml::from_str::<VariantDispatch>(&s).unwrap();
-        let result= Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_yaml_disp_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_toml_round_trip() -> bool {
-    println!(" -- test_toml_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = toml::to_string(&foo).unwrap();
-        let result = toml::from_str::<Foo>(&s).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_toml_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_toml_variant_round_trip() -> bool {
-    println!(" -- test_toml_variant_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = toml::to_string(&foo.to_variant()).unwrap();
-        let variant = toml::from_str::<Variant>(&s).unwrap();
-        let result = Foo::from_variant(&variant).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_toml_variant_round_trip failed");
-    }
-    
-    ok
-}
-
-fn test_toml_disp_round_trip() -> bool {
-    println!(" -- test_toml_disp_round_trip");
-    
-    let ok = std::panic::catch_unwind(|| {
-        let foo = Foo::new();
-        let s = toml::to_string(&foo.to_variant().dispatch()).unwrap();
-        let disp = toml::from_str::<VariantDispatch>(&s).unwrap();
-        let result= Foo::from_variant(&Variant::from(&disp)).unwrap();
-        assert_eq!(foo, result)
-    })
-      .is_ok();
-    
-    if !ok {
-        gdnative::godot_error!("   !! Test test_toml_disp_round_trip failed");
-    }
-    
-    ok
+#[derive(Serialize, Deserialize)]
+enum Bar {
+    Baz(f64),
+    Qux(bool),
 }
