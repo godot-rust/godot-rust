@@ -84,3 +84,49 @@ impl PartialOrd for Rid {
         }
     }
 }
+
+#[cfg(feature = "serde")]
+mod serde {
+    use super::*;
+    use ::serde::{
+        de::{Error, Visitor},
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use std::fmt::Formatter;
+
+    impl Serialize for Rid {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_unit()
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Rid {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct RidVisitor;
+            impl<'de> Visitor<'de> for RidVisitor {
+                type Value = Rid;
+
+                fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                    formatter.write_str("Unit as an RID placeholder")
+                }
+
+                fn visit_unit<E>(self) -> Result<Self::Value, E>
+                where
+                    E: Error,
+                {
+                    Ok(Rid::new())
+                }
+            }
+            deserializer.deserialize_unit(RidVisitor)?;
+            Ok(Rid::new())
+        }
+    }
+}
