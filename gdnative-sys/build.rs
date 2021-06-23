@@ -90,29 +90,74 @@ mod header_binding {
             .to_string_lossy(),
         );
 
+        let mut android_ndk_root: Option<PathBuf> = None;
+
+        if Path::join(&android_sdk_root, "ndk").exists() {
+            // New NDK
+            let available_ndk_versions: Vec<_> =
+                std::fs::read_dir(Path::join(&android_sdk_root, "ndk"))
+                    .unwrap()
+                    .into_iter()
+                    .map(|dir| dir.unwrap().path())
+                    .collect();
+
+            if available_ndk_versions.len() > 0 {
+                let ndk_version = std::env::var("ANDROID_NDK_VERSION");
+
+                if ndk_version.is_err() {
+                    // No NDK version chosen
+                    match available_ndk_versions.len() {
+                        1 => android_ndk_root = Some(available_ndk_versions.get(0).unwrap().clone()),
+                        _ => panic!("multiple ndk versions available : {:?}, chose one using ANDROID_NDK_VERSION", available_ndk_versions)
+                    }
+                } else {
+                    let ndk_version = ndk_version.unwrap();
+
+                    if available_ndk_versions
+                        .iter()
+                        .map(|p| p.file_name())
+                        .any(|p| {
+                            p.is_some() && p.unwrap().to_string_lossy().eq(ndk_version.as_str())
+                        })
+                    {
+                        // Asked version is available
+                        android_ndk_root = Some(Path::join(
+                            &Path::join(&android_sdk_root, "ndk"),
+                            ndk_version,
+                        ))
+                    } else {
+                        panic!(
+                            "no available ndk versions matches {}. Available versions : {:?}",
+                            ndk_version, available_ndk_versions
+                        )
+                    }
+                }
+            }
+        }
+
+        if android_ndk_root.is_none() && Path::join(&android_sdk_root, "ndk-bundle").exists() {
+            // Old NDK
+            android_ndk_root = Some(Path::join(&android_sdk_root, "ndk-bundle"));
+        }
+
+        if android_ndk_root.is_none() {
+            panic!("ndk needs to be installed");
+        };
+
+        let android_ndk_root = android_ndk_root.unwrap();
+
+        builder = builder
+            .clang_arg("-I")
+            .clang_arg(Path::join(&android_ndk_root, "sysroot/usr/include").to_string_lossy());
         builder = builder.clang_arg("-I").clang_arg(
-            Path::join(&android_sdk_root, "ndk-bundle/sysroot/usr/include").to_string_lossy(),
+            Path::join(&android_ndk_root, "sources/cxx-stl/llvm-libc++/include").to_string_lossy(),
         );
         builder = builder.clang_arg("-I").clang_arg(
-            Path::join(
-                &android_sdk_root,
-                "ndk-bundle/sources/cxx-stl/llvm-libc++/include",
-            )
-            .to_string_lossy(),
+            Path::join(&android_ndk_root, "sources/cxx-stl/llvm-libc++abi/include")
+                .to_string_lossy(),
         );
         builder = builder.clang_arg("-I").clang_arg(
-            Path::join(
-                &android_sdk_root,
-                "ndk-bundle/sources/cxx-stl/llvm-libc++abi/include",
-            )
-            .to_string_lossy(),
-        );
-        builder = builder.clang_arg("-I").clang_arg(
-            Path::join(
-                &android_sdk_root,
-                "ndk-bundle/sources/android/support/include",
-            )
-            .to_string_lossy(),
+            Path::join(&android_ndk_root, "sources/android/support/include").to_string_lossy(),
         );
 
         let host_tag = {
@@ -129,23 +174,20 @@ mod header_binding {
 
         builder = builder.clang_arg("-I").clang_arg(
             Path::join(
-                &android_sdk_root,
-                format!(
-                    "ndk-bundle/toolchains/llvm/prebuilt/{}/sysroot/usr/include",
-                    &host_tag
-                ),
+                &android_ndk_root,
+                format!("toolchains/llvm/prebuilt/{}/sysroot/usr/include", &host_tag),
             )
             .to_string_lossy(),
         );
 
         builder = builder.clang_arg("-I").clang_arg(
             Path::join(
-                &android_sdk_root,
+                &android_ndk_root,
                 format!(
-            "ndk-bundle/toolchains/llvm/prebuilt/{host}/sysroot/usr/include/{target_triple}",
-            host = &host_tag,
-            target_triple = &target_triple,
-        ),
+                    "toolchains/llvm/prebuilt/{host}/sysroot/usr/include/{target_triple}",
+                    host = &host_tag,
+                    target_triple = &target_triple,
+                ),
             )
             .to_string_lossy(),
         );
