@@ -295,7 +295,7 @@ impl Vector3 {
     /// vector.
     #[inline]
     pub fn rotated(self, axis: Self, phi: f32) -> Self {
-        Basis::from_axis_angle(&axis, phi) * self
+        Basis::from_axis_angle(&axis, phi).xform(self)
     }
 
     /// Returns this vector with all components rounded to the nearest integer, with halfway cases
@@ -533,6 +533,21 @@ godot_test!(
 #[cfg(test)]
 mod tests {
     use crate::core_types::Vector3;
+
+    /** 
+     * matching result in GDScript:
+     * var v1 = Vector3(37.51756, 20.39467, 49.96816)
+     * var phi = -0.4927880786382844
+     * var v2 = v1.rotated(Vector3.UP, r)
+     * print(c)
+     */
+    #[test]
+    fn rotated() {
+        let v = Vector3::new(37.51756, 20.39467, 49.96816);
+        let phi = -0.4927880786382844;
+        let r = v.rotated(Vector3::UP, phi);
+        assert!(r.is_equal_approx(Vector3::new(9.414476, 20.39467, 61.77177)));
+    }
 
     #[test]
     fn it_is_copy() {
